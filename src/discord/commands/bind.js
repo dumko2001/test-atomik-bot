@@ -12,67 +12,71 @@ module.exports = {
                 .setRequired(true)
                 .addChoices(
                     { name: 'Stats Channel', value: 'stats_channel' },
-                    {
-                        name: 'Leaderboard Channel',
-                        value: 'leaderboard_channel',
-                    },
+                    { name: 'Leaderboard Channel', value: 'leaderboard_channel' },
                     { name: 'Admin Role', value: 'admin_role' }
                 )
         )
-        .addMentionableOption((option) =>
+        .addChannelOption((option) =>
             option
-                .setName('target')
-                .setDescription('The channel or role to bind')
-                .setRequired(true)
+                .setName('channel')
+                .setDescription('The channel to bind (if binding a channel)')
+                .setRequired(false)
+        )
+        .addRoleOption((option) =>
+            option
+                .setName('role')
+                .setDescription('The role to bind (if binding a role)')
+                .setRequired(false)
         ),
 
     async execute(interaction) {
         const resource = interaction.options.getString('resource');
-        const target = interaction.options.getMentionable('target');
+        const channelTarget = interaction.options.getChannel('channel');
+        const roleTarget = interaction.options.getRole('role');
         const guildId = interaction.guild.id;
 
-        // Validate that the target is appropriate for the resource
-        if (resource === 'admin_role' && !target.roles) {
+        // --- New, more robust validation ---
+
+        // 1. Check if both or neither were provided
+        if ((channelTarget && roleTarget) || (!channelTarget && !roleTarget)) {
             return await interaction.reply({
-                content: 'Admin role must be bound to a role, not a channel.',
+                content: 'Error: You must provide exactly ONE target (either a channel OR a role).',
                 ephemeral: true,
             });
         }
 
-        if (
-            (resource === 'stats_channel' ||
-                resource === 'leaderboard_channel') &&
-            target.roles
-        ) {
+        // 2. Determine the single target that was provided
+        const target = channelTarget || roleTarget;
+
+        // 3. Check if the target type matches the resource type
+        if (resource === 'admin_role' && !roleTarget) {
             return await interaction.reply({
-                content: 'Channels must be bound to channels, not roles.',
+                content: 'Error: The "Admin Role" resource can only be bound to a ROLE.',
                 ephemeral: true,
             });
         }
+
+        if (['stats_channel', 'leaderboard_channel'].includes(resource) && !channelTarget) {
+            return await interaction.reply({
+                content: 'Error: This resource can only be bound to a CHANNEL.',
+                ephemeral: true,
+            });
+        }
+
+        // --- End of new validation ---
 
         try {
-            // Update the guild setting in the database
             await updateGuildSetting(guildId, resource, target.id);
-
-            // Create a user-friendly resource name
-            const resourceNames = {
-                stats_channel: 'Stats Channel',
-                leaderboard_channel: 'Leaderboard Channel',
-                admin_role: 'Admin Role',
-            };
-
-            const resourceName = resourceNames[resource];
-            const targetName = target.name || target.displayName;
+            const resourceName = resource.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
             await interaction.reply({
-                content: `✅ Successfully bound **${resourceName}** to ${target} (${targetName})`,
+                content: `✅ Successfully bound **${resourceName}** to ${target}`,
                 ephemeral: false,
             });
         } catch (error) {
             console.error('Error in bind command:', error);
             await interaction.reply({
-                content:
-                    'There was an error while binding the resource. Please try again.',
+                content: 'There was an error while binding the resource. Please try again.',
                 ephemeral: true,
             });
         }
